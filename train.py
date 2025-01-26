@@ -1,10 +1,10 @@
-from utils.logger import setup_logger
-from datasets.make_dataloader import make_dataloader
-from model.make_model import make_model
-from solver.make_optimizer import make_optimizer
-from solver.lr_scheduler import WarmupMultiStepLR
-from loss.make_loss import make_loss
-from processor.processor import do_train
+from utils.logger import setup_logger # 日志记录
+from datasets.make_dataloader import make_dataloader # 数据加载
+from model.make_model import make_model # 模型构建
+from solver.make_optimizer import make_optimizer # 优化器构建
+from solver.lr_scheduler import WarmupMultiStepLR # 学习率调度
+from loss.make_loss import make_loss # 损失函数创建
+from processor.processor import do_train # 训练流程
 import random
 import torch
 import numpy as np
@@ -12,6 +12,7 @@ import os
 import argparse
 from config import cfg_base as cfg
 
+# 设置随机种子
 def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -23,16 +24,18 @@ def set_seed(seed):
 
 if __name__ == '__main__':
 
+    # 命令行解析
     parser = argparse.ArgumentParser(description="ReID Baseline Training")
     parser.add_argument(
         "--config_file", default="configs/person/vit_base.yml", help="path to config file", type=str
-    )
+    ) # 使用 vit_base
 
     parser.add_argument("opts", help="Modify config options using the command-line", default=None,
                         nargs=argparse.REMAINDER)
     parser.add_argument("--local_rank", default=0, type=int)
     args = parser.parse_args()
 
+    # 配置文件加载
     if args.config_file != "":
         cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
@@ -40,6 +43,7 @@ if __name__ == '__main__':
 
     set_seed(cfg.SOLVER.SEED)
 
+    # 分布式训练设置
     if cfg.MODEL.DIST_TRAIN:
         torch.cuda.set_device(args.local_rank)
 
@@ -47,6 +51,7 @@ if __name__ == '__main__':
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    # 日志记录
     logger = setup_logger("transreid", output_dir, if_train=True)
     logger.info("Saving model in the path :{}".format(cfg.OUTPUT_DIR))
     logger.info(args)
@@ -62,7 +67,7 @@ if __name__ == '__main__':
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
     os.environ['CUDA_VISIBLE_DEVICES'] = cfg.MODEL.DEVICE_ID
-    train_loader, train_loader_normal, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader(cfg)
+    train_loader, train_loader_normal, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader(cfg) # base 配置加载训练、验证数据、获取数据集相关信息
 
     model = make_model(cfg, num_class=num_classes, camera_num=camera_num, view_num = view_num)
 

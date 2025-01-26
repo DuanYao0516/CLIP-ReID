@@ -9,11 +9,13 @@ import regex as re
 
 @lru_cache()
 def default_bpe():
+    # 返回当前脚本所在目录下的bpe_simple_vocab_16e6.txt.gz文件路径
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "bpe_simple_vocab_16e6.txt.gz")
 
 
 @lru_cache()
 def bytes_to_unicode():
+    # 创建一个从 UTF - 8 字节到 Unicode 字符串的映射表
     """
     Returns list of utf-8 byte and a corresponding list of unicode strings.
     The reversible bpe codes work on unicode strings.
@@ -36,6 +38,7 @@ def bytes_to_unicode():
 
 
 def get_pairs(word):
+    # 接受一个单词（表示为符号元组），返回单词中所有相邻符号对的集合
     """Return set of symbol pairs in a word.
     Word is represented as tuple of symbols (symbols being variable-length strings).
     """
@@ -48,6 +51,9 @@ def get_pairs(word):
 
 
 def basic_clean(text):
+    # 使用ftfy库修复文本编码问题。
+    # 两次调用html.unescape去除HTML实体。
+    # 去除文本两端的空白字符。
     text = ftfy.fix_text(text)
     text = html.unescape(html.unescape(text))
     return text.strip()

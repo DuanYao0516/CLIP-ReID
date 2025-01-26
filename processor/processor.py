@@ -46,6 +46,21 @@ def do_train(cfg,
     all_start_time = time.monotonic()
     logger.info("model: {}".format(model))
 
+    """
+    遍历每个训练轮次（epoch）：
+        重置损失和准确率的计量器以及评估器。
+        执行学习率调度器的 step 方法来更新学习率。
+        将模型设置为训练模式 model.train()。
+        遍历训练数据加载器 train_loader 中的每个批次：
+            清零优化器和中心损失优化器的梯度。
+            将输入数据（图像、标签等）移动到指定设备上。
+            使用自动混合精度训练（amp.autocast）计算模型的输出（得分和特征）和损失。
+            使用缩放器 scaler 进行反向传播和优化器更新。
+            如果使用了中心损失，对中心损失的参数进行特殊处理后再更新。
+            计算准确率并更新损失和准确率的计量器。
+            每隔 log_period 个批次记录一次训练信息（损失、准确率和学习率）。
+    """
+
     for epoch in range(1, epochs + 1):
         start_time = time.time()
         loss_meter.reset()
@@ -101,9 +116,10 @@ def do_train(cfg,
         if cfg.MODEL.DIST_TRAIN:
             pass
         else:
+            # 计算每轮训练的时间和每批次的平均时间，并记录日志。
             logger.info("Epoch {} done. Time per batch: {:.3f}[s] Speed: {:.1f}[samples/s]"
                     .format(epoch, time_per_batch, train_loader.batch_size / time_per_batch))
-
+        # 每隔 checkpoint_period 个轮次保存模型的状态字典。
         if epoch % checkpoint_period == 0:
             if cfg.MODEL.DIST_TRAIN:
                 if dist.get_rank() == 0:
@@ -112,11 +128,11 @@ def do_train(cfg,
             else:
                 torch.save(model.state_dict(),
                            os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_{}.pth'.format(epoch)))
-
+        # 每隔 eval_period 个轮次进行一次验证
         if epoch % eval_period == 0:
             if cfg.MODEL.DIST_TRAIN:
                 if dist.get_rank() == 0:
-                    model.eval()
+                    model.eval() # 设置为评估模式
                     for n_iter, (img, vid, camid, camids, target_view, _) in enumerate(val_loader):
                         with torch.no_grad():
                             img = img.to(device)

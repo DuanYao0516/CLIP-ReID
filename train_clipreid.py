@@ -5,7 +5,7 @@ from solver.make_optimizer_prompt import make_optimizer_1stage, make_optimizer_2
 from solver.scheduler_factory import create_scheduler
 from solver.lr_scheduler import WarmupMultiStepLR
 from loss.make_loss import make_loss
-from processor.processor_clipreid_stage1 import do_train_stage1
+from processor.processor_clipreid_stage1 import do_train_stage1  # 这里发生了变化，相比于baseline，分为了两阶段
 from processor.processor_clipreid_stage2 import do_train_stage2
 import random
 import torch
@@ -13,6 +13,7 @@ import numpy as np
 import os
 import argparse
 from config import cfg
+
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -28,7 +29,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="ReID Baseline Training")
     parser.add_argument(
         "--config_file", default="configs/person/vit_clipreid.yml", help="path to config file", type=str
-    )
+    ) # 这里的默认配置文件是 vit_clipreid 与基准base方法不同
 
     parser.add_argument("opts", help="Modify config options using the command-line", default=None,
                         nargs=argparse.REMAINDER)
@@ -63,12 +64,14 @@ if __name__ == '__main__':
     if cfg.MODEL.DIST_TRAIN:
         torch.distributed.init_process_group(backend='nccl', init_method='env://')
 
-    train_loader_stage2, train_loader_stage1, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader(cfg)
+    train_loader_stage2, train_loader_stage1, val_loader, num_query, num_classes, camera_num, view_num = make_dataloader(cfg) # clip reid 配置信息指向的数据加载其加载数据，并有两阶段的训练数据加载器
 
+    # 构建模型
     model = make_model(cfg, num_class=num_classes, camera_num=camera_num, view_num = view_num)
 
+    # 损失函数与优化器
     loss_func, center_criterion = make_loss(cfg, num_classes=num_classes)
-
+    # 第一阶段优化器与调度器
     optimizer_1stage = make_optimizer_1stage(cfg, model)
     scheduler_1stage = create_scheduler(optimizer_1stage, num_epochs = cfg.SOLVER.STAGE1.MAX_EPOCHS, lr_min = cfg.SOLVER.STAGE1.LR_MIN, \
                         warmup_lr_init = cfg.SOLVER.STAGE1.WARMUP_LR_INIT, warmup_t = cfg.SOLVER.STAGE1.WARMUP_EPOCHS, noise_range = None)
@@ -82,6 +85,7 @@ if __name__ == '__main__':
         args.local_rank
     )
 
+    # 第二阶段优化器与调度器
     optimizer_2stage, optimizer_center_2stage = make_optimizer_2stage(cfg, model, center_criterion)
     scheduler_2stage = WarmupMultiStepLR(optimizer_2stage, cfg.SOLVER.STAGE2.STEPS, cfg.SOLVER.STAGE2.GAMMA, cfg.SOLVER.STAGE2.WARMUP_FACTOR,
                                   cfg.SOLVER.STAGE2.WARMUP_ITERS, cfg.SOLVER.STAGE2.WARMUP_METHOD)

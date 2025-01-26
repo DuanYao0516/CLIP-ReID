@@ -3,6 +3,7 @@ import torch
 from torch import nn
 
 def normalize(x, axis=-1):
+    # 沿着指定维度归一化到单位长度
     """Normalizing to unit length along the specified dimension.
     Args:
       x: pytorch Variable
@@ -14,6 +15,7 @@ def normalize(x, axis=-1):
 
 
 def euclidean_dist(x, y):
+    # 欧式距离
     """
     Args:
       x: pytorch Variable, with shape [m, d]
@@ -32,6 +34,7 @@ def euclidean_dist(x, y):
 
 
 def cosine_dist(x, y):
+    # 余弦距离
     """
     Args:
       x: pytorch Variable, with shape [m, d]
@@ -49,6 +52,8 @@ def cosine_dist(x, y):
 
 
 def hard_example_mining(dist_mat, labels, return_inds=False):
+    # 难例挖掘函数
+    # 对于每个锚点，找到最难的正样本与负样本
     """For each anchor, find the hardest positive and negative sample.
     Args:
       dist_mat: pytorch Variable, pair wise distance between samples, shape [N, N]
@@ -104,6 +109,7 @@ def hard_example_mining(dist_mat, labels, return_inds=False):
 
 
 class TripletLoss(object):
+    # 使用难样本的三元组损失
     """
     Triplet loss using HARDER example mining,
     modified based on original triplet loss using hard example mining

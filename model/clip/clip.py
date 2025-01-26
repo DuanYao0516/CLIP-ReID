@@ -18,7 +18,10 @@ try:
 except ImportError:
     BICUBIC = Image.BICUBIC
 
+# 用于下载、加载和预处理CLIP模型的Python模块
+# 包括模型下载、模型加载、图像预处理和文本标记化
 
+# 检查版本号
 if torch.__version__.split(".") < ["1", "7", "1"]:
     warnings.warn("PyTorch version 1.7.1 or higher is recommended")
 
@@ -26,6 +29,7 @@ if torch.__version__.split(".") < ["1", "7", "1"]:
 __all__ = ["available_models", "load", "tokenize"]
 _tokenizer = _Tokenizer()
 
+# 模型的 URL 地址
 _MODELS = {
     "RN50": "https://openaipublic.azureedge.net/clip/models/afeb0e10f9e5a86da6080e35cf09123aca3b358a0c3e3b6c78a7b63bc04b6762/RN50.pt",
     "RN101": "https://openaipublic.azureedge.net/clip/models/8fa8567bab74a42d41c5915025a8e4538c3bdbe8804a470a72f30b0d94fab599/RN101.pt",
@@ -35,7 +39,7 @@ _MODELS = {
     "ViT-B-16": "https://openaipublic.azureedge.net/clip/models/5806e77cd80f8b59890b7e101eabd078d9fb84e6937f9e85e4ecb61988df416f/ViT-B-16.pt",
 }
 
-
+# 下载
 def _download(url: str, root: str = os.path.expanduser("~/.cache/clip")):
     os.makedirs(root, exist_ok=True)
     filename = os.path.basename(url)

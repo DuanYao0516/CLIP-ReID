@@ -1,4 +1,34 @@
-﻿## CLIP-ReID: Exploiting Vision-Language Model for Image Re-Identification without Concrete Text Labels [[pdf]](https://arxiv.org/pdf/2211.13977.pdf)
+﻿# clip-reid 注释学习
+
+本仓库对CLIP-REID代码进行注释学习
+
+## 2025/01/26
+
+应重点关注的部分包括：参数设置、模型构建、数据集处理。
+
+以下是相关的文件大致说明，具体的注释在代码中查看。
+
+- /config 文件夹中用 yacs 进行参数节点配置，包含6个主要节点。
+  - defaults_base.py这个配置文件通过定义model, input, dataset, dataloader, solver, test, 其他选项七种配置参数来管理baseline模型的训练和测试设置。
+  - defaults.py这个配置文件通过定义上述七种参数并在solver中分别定义stage1和stage2的各个配置参数来管理clip-reid模型的训练和测试设置。
+- /configs/person 文件夹中是四个yaml文件，是对于上述config-yacs的具体配置
+- /datasets/ 文件夹用于配置和加载数据集相关
+  - /datasets/make_dataloader.py 用于定义数据加载与预处理流程。其中 __factory 工厂类用于统一处理集中不同的数据集。
+  - /datasets/market1501.py 是用于处理同名数据集的类，类似的，该目录下所有以数据集为名的目录都是这样的
+- /model 部分包含所有相关模型
+  - /model/clip/model.py 是clip模型相关的模块，应当不涉及reid模型，build_model 函数在 make_model 与 make_model_clipreid 最终被调用
+  - /model/make_model.py 用于构建base模型
+  - /mode;/make_model_clipreid.py 用于构建完整的 CLIP-REID模型架构。
+- /loss/文件夹包含损失函数
+  - /loss/make_loss.py 用于根据配置文件  cfg 与 类别数量 num_classes 创建损失函数和中心损失
+  - /loss/triplet_loss.py 定义难例与三元组损失
+- /processor/ 文件夹中包含了每种模型做训练与测试的处理流程
+  - /processor/processor.py 是普通base reid模型的处理流程
+  - /processor/processor_clipreid_stage_1/2.py 是Clip-reid模型的两阶段处理
+- /根目录下 test/train 相关文件仅做参数设置、记录、调用processor
+
+---
+## CLIP-ReID: Exploiting Vision-Language Model for Image Re-Identification without Concrete Text Labels [[pdf]](https://arxiv.org/pdf/2211.13977.pdf)
  [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/clip-reid-exploiting-vision-language-model/person-re-identification-on-msmt17)](https://paperswithcode.com/sota/person-re-identification-on-msmt17?p=clip-reid-exploiting-vision-language-model)
 
 ### Pipeline

@@ -27,7 +27,7 @@ def weights_init_classifier(m):
         if m.bias:
             nn.init.constant_(m.bias, 0.0)
 
-
+# 文本编码器类，使用CLIP模型的Transformer和投影层来编码文本
 class TextEncoder(nn.Module):
     def __init__(self, clip_model):
         super().__init__()
@@ -46,9 +46,11 @@ class TextEncoder(nn.Module):
 
         # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
+        # 获取 EOT End of Text 标记的特征
         x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection 
         return x
 
+# 构建 Transformer 模型类，用于图像和文本编码
 class build_transformer(nn.Module):
     def __init__(self, num_classes, camera_num, view_num, cfg):
         super(build_transformer, self).__init__()
@@ -67,11 +69,13 @@ class build_transformer(nn.Module):
         self.view_num = view_num
         self.sie_coe = cfg.MODEL.SIE_COE   
 
+        # 分类器初始化
         self.classifier = nn.Linear(self.in_planes, self.num_classes, bias=False)
         self.classifier.apply(weights_init_classifier)
         self.classifier_proj = nn.Linear(self.in_planes_proj, self.num_classes, bias=False)
         self.classifier_proj.apply(weights_init_classifier)
 
+        # 瓶颈层初始化
         self.bottleneck = nn.BatchNorm1d(self.in_planes)
         self.bottleneck.bias.requires_grad_(False)
         self.bottleneck.apply(weights_init_kaiming)
@@ -79,14 +83,18 @@ class build_transformer(nn.Module):
         self.bottleneck_proj.bias.requires_grad_(False)
         self.bottleneck_proj.apply(weights_init_kaiming)
 
+        # 计算输入图像的分辨率
         self.h_resolution = int((cfg.INPUT.SIZE_TRAIN[0]-16)//cfg.MODEL.STRIDE_SIZE[0] + 1)
         self.w_resolution = int((cfg.INPUT.SIZE_TRAIN[1]-16)//cfg.MODEL.STRIDE_SIZE[1] + 1)
         self.vision_stride_size = cfg.MODEL.STRIDE_SIZE[0]
+
+        # 加载 CLIP 模型
         clip_model = load_clip_to_cpu(self.model_name, self.h_resolution, self.w_resolution, self.vision_stride_size)
         clip_model.to("cuda")
 
         self.image_encoder = clip_model.visual
 
+        # 摄像机和视角嵌入初始化
         if cfg.MODEL.SIE_CAMERA and cfg.MODEL.SIE_VIEW:
             self.cv_embed = nn.Parameter(torch.zeros(camera_num * view_num, self.in_planes))
             trunc_normal_(self.cv_embed, std=.02)
@@ -105,18 +113,19 @@ class build_transformer(nn.Module):
         self.text_encoder = TextEncoder(clip_model)
 
     def forward(self, x = None, label=None, get_image = False, get_text = False, cam_label= None, view_label=None):
-        if get_text == True:
+        if get_text == True: # 获取文本特征
             prompts = self.prompt_learner(label) 
             text_features = self.text_encoder(prompts, self.prompt_learner.tokenized_prompts)
             return text_features
 
-        if get_image == True:
+        if get_image == True: # 获取图像特征
             image_features_last, image_features, image_features_proj = self.image_encoder(x) 
             if self.model_name == 'RN50':
                 return image_features_proj[0]
             elif self.model_name == 'ViT-B-16':
                 return image_features_proj[:,0]
-        
+
+        # 获取图像特征并处理相机和视角的嵌入
         if self.model_name == 'RN50':
             image_features_last, image_features, image_features_proj = self.image_encoder(x) 
             img_feature_last = nn.functional.avg_pool2d(image_features_last, image_features_last.shape[2:4]).view(x.shape[0], -1) 
@@ -147,6 +156,7 @@ class build_transformer(nn.Module):
 
         else:
             if self.neck_feat == 'after':
+                # 测试时 使用 BN后的特征
                 # print("Test with feature after BN")
                 return torch.cat([feat, feat_proj], dim=1)
             else:
@@ -177,6 +187,7 @@ def load_clip_to_cpu(backbone_name, h_resolution, w_resolution, vision_stride_si
     model_path = clip._download(url)
 
     try:
+        # 尝试加载 JIT 模型
         # loading JIT archive
         model = torch.jit.load(model_path, map_location="cpu").eval()
         state_dict = None
@@ -188,6 +199,7 @@ def load_clip_to_cpu(backbone_name, h_resolution, w_resolution, vision_stride_si
 
     return model
 
+# 提示词学习器类，生成适合特定任务的提示词
 class PromptLearner(nn.Module):
     def __init__(self, num_class, dataset_name, dtype, token_embedding):
         super().__init__()
@@ -197,6 +209,7 @@ class PromptLearner(nn.Module):
             ctx_init = "A photo of a X X X X person."
 
         ctx_dim = 512
+        # 初始化上下文向量
         # use given words to initialize context vectors
         ctx_init = ctx_init.replace("_", " ")
         n_ctx = 4
@@ -211,7 +224,7 @@ class PromptLearner(nn.Module):
         nn.init.normal_(cls_vectors, std=0.02)
         self.cls_ctx = nn.Parameter(cls_vectors) 
 
-        
+        # 保存这些令牌向量
         # These token vectors will be saved when in save_model(),
         # but they should be ignored in load_model() as we want to use
         # those computed using the current class names

@@ -14,21 +14,22 @@ class Bottleneck(nn.Module):
         super().__init__()
 
         # all conv layers have stride 1. an avgpool is performed after the second convolution when stride > 1
-        self.conv1 = nn.Conv2d(inplanes, planes, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv1 = nn.Conv2d(inplanes, planes, 1, bias=False) # 1*1 卷积，用于减少通道数
+        self.bn1 = nn.BatchNorm2d(planes) # 批归一化
 
-        self.conv2 = nn.Conv2d(planes, planes, 3, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, 3, padding=1, bias=False) # 3*3 卷积层 提取特征
+        self.bn2 = nn.BatchNorm2d(planes) # 批归一化
 
-        self.avgpool = nn.AvgPool2d(stride) if stride > 1 else nn.Identity()
+        self.avgpool = nn.AvgPool2d(stride) if stride > 1 else nn.Identity() # 平均池化，在步幅大于1时进行下采样，否则为恒等映射
 
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, 1, bias=False)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, 1, bias=False) # 1*1 卷积层 恢复通道数
         self.bn3 = nn.BatchNorm2d(planes * self.expansion)
 
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = None
-        self.stride = stride
+        self.relu = nn.ReLU(inplace=True) # RELU激活函数
+        self.downsample = None # 下采样层，默认None
+        self.stride = stride # 步幅，用于池化层与卷积层
 
+        # 若步幅大于1或者输入通道数不等于输出通道数
         if stride > 1 or inplanes != planes * Bottleneck.expansion:
             # downsampling layer is prepended with an avgpool, and the subsequent convolution has stride 1
             self.downsample = nn.Sequential(OrderedDict([
@@ -38,24 +39,25 @@ class Bottleneck(nn.Module):
             ]))
 
     def forward(self, x: torch.Tensor):
-        identity = x
+        identity = x  # 保存输入张量 用于残差连接
 
         out = self.relu(self.bn1(self.conv1(x)))
         out = self.relu(self.bn2(self.conv2(out)))
         out = self.avgpool(out)
         out = self.bn3(self.conv3(out))
 
-        if self.downsample is not None:
+        if self.downsample is not None:  # 存在下采样层
             identity = self.downsample(x)
 
-        out += identity
+        out += identity  # 残差连接
         out = self.relu(out)
         return out
 
-
+# 基于注意力机制的二维池化操作
 class AttentionPool2d(nn.Module):
     def __init__(self, spacial_dim: int, embed_dim: int, num_heads: int, output_dim: int = None):
         super().__init__()
+        # 未知嵌入与线性投影层
         self.positional_embedding = nn.Parameter(torch.randn(spacial_dim + 1, embed_dim) / embed_dim ** 0.5)
         self.k_proj = nn.Linear(embed_dim, embed_dim)
         self.q_proj = nn.Linear(embed_dim, embed_dim)
@@ -63,10 +65,17 @@ class AttentionPool2d(nn.Module):
         self.c_proj = nn.Linear(embed_dim, output_dim or embed_dim) 
         self.num_heads = num_heads
 
-    def forward(self, x): 
+    def forward(self, x):
+        # 输入张量的形状为 (N,C,H,W) 调整为 (N,C,HW) 转置为 (HW,N,C)
         x = x.reshape(x.shape[0], x.shape[1], x.shape[2] * x.shape[3]).permute(2, 0, 1)  # NCHW -> (HW)NC  #32,2048,7,7 ->49, 32, 2048
+        # 计算 X 在第一个维度的均值，并添加到张量开头
         x = torch.cat([x.mean(dim=0, keepdim=True), x], dim=0)  # (HW+1)NC  50,32,2048
+        # 添加位置嵌入到每个位置的特征表示中
+        # [:, None, :] 用于将位置嵌入的维度从 (HW+1,C) 调整到 (HW+1,1,C),而后利用广播机制，将位置嵌入自动扩展到x（保证第二个维度相同）
+        # to(x.dtype) 用于调整数据类型
         x = x + self.positional_embedding[:, None, :].to(x.dtype)  # (HW+1)NC
+
+        # 计算多头自注意力
         x, _ = F.multi_head_attention_forward(
             query=x, key=x, value=x,
             embed_dim_to_check=x.shape[-1],
@@ -87,8 +96,14 @@ class AttentionPool2d(nn.Module):
             need_weights=False
         ) 
 
-        return x 
+        return x # 多头注意力计算后的张量x
+    # 总之，这个类采用多头注意力机制实现了二维池化操作
+    # Question 为什么必须要使用多头做二维池化？而不能直接池化？是因为需要降维？
 
+# Resnet 的改版
+# 使用 3 个卷积层作为初始的“stem”层，而不是一个，并且使用平均池化替代最大池化。
+# 使用反别名的跨步卷积（即在卷积层之前添加平均池化层）。
+# 使用 QKV 注意力机制替代最后的平均池化层。
 class ModifiedResNet(nn.Module):
     """
     A ResNet class that is similar to torchvision's but contains the following changes:
@@ -114,6 +129,7 @@ class ModifiedResNet(nn.Module):
 
         # residual layers
         self._inplanes = width  # this is a *mutable* variable used during construction
+        # _make_layer 用于构建残差层
         self.layer1 = self._make_layer(width, layers[0])
         self.layer2 = self._make_layer(width * 2, layers[1], stride=2)
         self.layer3 = self._make_layer(width * 4, layers[2], stride=2)
@@ -147,21 +163,23 @@ class ModifiedResNet(nn.Module):
 
         return x3, x4, xproj 
 
-
+# 处理 fp16（半精度浮点数）计算的层归一化
 class LayerNorm(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16."""
+    # 将 fp16 临时转换为 fp32 进行层归一化后 转换为原始数据类型
 
     def forward(self, x: torch.Tensor):
         orig_type = x.dtype
         ret = super().forward(x.type(torch.float32))
         return ret.type(orig_type)
 
-
+# 快速近似的 GELU 激活函数
 class QuickGELU(nn.Module):
     def forward(self, x: torch.Tensor):
-        return x * torch.sigmoid(1.702 * x)
+        return x * torch.sigmoid(1.702 * x) # 公式，相比于 GELU更快，效果相似
 
-
+# 带有残差连接的注意力块
+# 包括一个多头注意力机制，一个前馈神经网络，一个层归一化操作
 class ResidualAttentionBlock(nn.Module):
     def __init__(self, d_model: int, n_head: int, attn_mask: torch.Tensor = None):
         super().__init__()
@@ -185,7 +203,7 @@ class ResidualAttentionBlock(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
-
+# 一个基于残差注意力块的 Transformer 模块
 class Transformer(nn.Module):
     def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None):
         super().__init__()
@@ -196,7 +214,7 @@ class Transformer(nn.Module):
     def forward(self, x: torch.Tensor):
         return self.resblocks(x)
 
-
+# VIT类
 class VisionTransformer(nn.Module):
     def __init__(self, h_resolution: int, w_resolution: int, patch_size: int, stride_size: int, width: int, layers: int, heads: int, output_dim: int):
         super().__init__()
@@ -239,7 +257,8 @@ class VisionTransformer(nn.Module):
 
         return x11, x12, xproj
 
-
+# CLIP 模型，能够同时处理图像和文本，并生成他们的嵌入表示
+# 主要由视觉和文本编码器组成，并使用 Transformer 模块来处理文本。
 class CLIP(nn.Module):
     def __init__(self,
                  embed_dim: int,
@@ -262,6 +281,7 @@ class CLIP(nn.Module):
 
         self.context_length = context_length
 
+        # 根据 vision_layers 的类型选择使用 ModifiedResNet 或 VisionTransformer 作为视觉编码器
         if isinstance(vision_layers, (tuple, list)):
             vision_heads = vision_width * 32 // 64
             self.visual = ModifiedResNet(
@@ -283,7 +303,8 @@ class CLIP(nn.Module):
                 heads=vision_heads,
                 output_dim=embed_dim
             )
-            
+
+        # 初始化 Transformer 模块作为文本编码器
         self.transformer = Transformer(
             width=transformer_width,
             layers=transformer_layers,
@@ -291,20 +312,25 @@ class CLIP(nn.Module):
             attn_mask=self.build_attention_mask()
         )
 
+        # 初始化文本编码器的相关参数
         self.vocab_size = vocab_size
         self.token_embedding = nn.Embedding(vocab_size, transformer_width)
         self.positional_embedding = nn.Parameter(torch.empty(self.context_length, transformer_width))
         self.ln_final = LayerNorm(transformer_width)
 
+        # 初始化用于投影文本特征的参数
         self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))
+        # 初始化 logit 的缩放参数
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
-
+        # 调用initialize_parameters函数初始化所有参数
         self.initialize_parameters()
 
     def initialize_parameters(self):
+        # 初始化文本嵌入层和位置嵌入层的权重
         nn.init.normal_(self.token_embedding.weight, std=0.02)
         nn.init.normal_(self.positional_embedding, std=0.01)
 
+        # 如果视觉编码器是 ModifiedResNet，初始化其权重
         if isinstance(self.visual, ModifiedResNet):
             if self.visual.attnpool is not None:
                 std = self.visual.attnpool.c_proj.in_features ** -0.5
@@ -318,6 +344,7 @@ class CLIP(nn.Module):
                     if name.endswith("bn3.weight"):
                         nn.init.zeros_(param)
 
+        # 初始化 Transformer 模块的权重 **部分代表标准差
         proj_std = (self.transformer.width ** -0.5) * ((2 * self.transformer.layers) ** -0.5)
         attn_std = self.transformer.width ** -0.5
         fc_std = (2 * self.transformer.width) ** -0.5
@@ -327,14 +354,20 @@ class CLIP(nn.Module):
             nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
             nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
 
+        # 初始化文本投影的权重
         if self.text_projection is not None:
             nn.init.normal_(self.text_projection, std=self.transformer.width ** -0.5)
 
     def build_attention_mask(self):
+        # 构建因果注意力掩码，屏蔽未来的位置
         # lazily create causal attention mask, with full attention between the vision tokens
         # pytorch uses additive attention mask; fill with -inf
+        # 形状为 (context_length, context_length) 的张量 mask，并填充为负无
+        # 穷大，仅保留上三角的负无穷大，从而屏蔽未来位置
         mask = torch.empty(self.context_length, self.context_length)
         mask.fill_(float("-inf"))
+        # mask.triu_(1) 表示从主对角线往上数第 1 条对角线开始保留元素，主对角线及其以下的元素都被设置为零。
+        # 清除下三角
         mask.triu_(1)  # zero out the lower diagonal
         return mask
 
@@ -343,30 +376,33 @@ class CLIP(nn.Module):
         return self.visual.conv1.weight.dtype
 
     def encode_image(self, image):
+        # 编码图像
         return self.visual(image.type(self.dtype))
 
-    def encode_text(self, text): 
-        x = self.token_embedding(text).type(self.dtype)  
-
+    def encode_text(self, text):
+        # 编码文本
+        x = self.token_embedding(text).type(self.dtype)
         x = x + self.positional_embedding.type(self.dtype) 
-        x = x.permute(1, 0, 2)  
+        x = x.permute(1, 0, 2)  # 转置为 (L,N,E)
         x = self.transformer(x) 
-        x = x.permute(1, 0, 2)  
-        x = self.ln_final(x).type(self.dtype) 
+        x = x.permute(1, 0, 2)  # 转置回 (N,L,E)
+        x = self.ln_final(x).type(self.dtype)
 
+        # 取出 [EOS] token 的特征并进行投影
         x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)] @ self.text_projection 
 
         return x
 
     def forward(self, image, text):
+        # 编码图像与文本
         image_features = self.encode_image(image)
         text_features = self.encode_text(text)
 
-        # normalized features
+        # normalized features 归一化特征 范数为1
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
-        # cosine similarity as logits
+        # cosine similarity as logits 计算余弦相似度作为 logits
         logit_scale = self.logit_scale.exp()
         logits_per_image = logit_scale * image_features @ text_features.t()
         logits_per_text = logit_scale * text_features @ image_features.t()

@@ -1,5 +1,9 @@
 from yacs.config import CfgNode as CN
 
+# 同样定义 defaults_base 中的七种参数
+# 并在 solver 中分别定义  stage1 和 stage2 参数来管理 CLIPREID
+# 模型的训练与测试设置
+
 # -----------------------------------------------------------------------------
 # Convention about Training / Test specific parameters
 # -----------------------------------------------------------------------------
